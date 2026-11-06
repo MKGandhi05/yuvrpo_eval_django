@@ -1,72 +1,74 @@
-# Yuvro Scoring Rules - Django Todo Signup Bugs
+# Yuvro Scoring Rules
 
-This directory contains the automated scoring harness for the **Django Todo Signup Bugs** engineering lab.
-
-## Overview
-
-The lab asks the candidate to fix the user signup flow so that duplicate email addresses are rejected with a clear error message, using case-insensitive comparison, while still allowing valid registrations.
+Automated scoring harness for the **Django todo signup bugs** engineering lab.
 
 ## Structure
 
-- `main_test.py` — Entry point. Sets up Django, runs each task evaluator, aggregates results, and prints a single JSON object to stdout.
-- `test1.py` — Evaluator for **Task 1: Prevent Duplicate Email Registration** (10 marks).
-- `readme.md` — This file.
+- `main_test.py` — Entry point. Sets up Django, runs each task test, aggregates scores, and prints a single JSON object to stdout.
+- `test1.py` — Task 1: Signup validation & duplicate email handling (10 marks).
+- `test2.py` — Task 2: Todo creation with ownership & validation (10 marks).
+- `test3.py` — Task 3: Todo listing with pagination & query efficiency (10 marks).
 
-## How the tests work
-
-### Task 1 — Prevent Duplicate Email Registration
-
-The evaluator attempts two complementary strategies:
-
-1. **Serializer-level check (preferred).** It tries to import a registration serializer from common locations (`accounts.serializers`, `users.serializers`, `todo.serializers`, `api.serializers`, etc.) using common class names (`UserRegistrationSerializer`, `RegisterSerializer`, `RegistrationSerializer`). If found, it:
-   - Submits a valid registration and asserts it is accepted.
-   - Submits the same email again and asserts a validation error is raised on the `email` field (or `non_field_errors`).
-   - Submits the same email with different casing (e.g. `USER@example.com`) and asserts it is also rejected.
-
-2. **API-level check (fallback).** If no serializer is found, it discovers registration endpoints from the URLconf (or falls back to common paths like `/api/register/`, `/api/signup/`, etc.) and uses `django.test.Client` to:
-   - POST a valid registration → expect `200`/`201`.
-   - POST the same email → expect `400`.
-   - POST the same email with different casing → expect `400`.
-
-All test users created during evaluation are cleaned up in a `finally` block.
-
-## Output contract
-
-`main_test.py` prints exactly one JSON object to stdout:
+Each `testN.py` exposes an `evaluate()` function returning:
 
 ```json
-{
-  "tasks": {
-    "task1": { "result": "passed", "score": 10, "message": "..." }
-  },
-  "total_score": 10,
-  "max_possible_score": 10
-}
+{ "result": "passed" | "failed", "score": <int>, "message": "..." }
 ```
 
-Each task entry has:
-- `result`: `"passed"` or `"failed"`
-- `score`: integer marks awarded (0 if failed)
-- `message`: human-readable explanation
+## Running Locally
 
-## Running locally
-
-From the project root (where `manage.py` lives):
+From the project root (where `manage.py` / `settings.py` live):
 
 ```bash
 python yuvro_scoring_rules/main_test.py
 ```
 
-If your Django settings module is not `settings`, set it explicitly:
+The runner will:
 
-```bash
-DJANGO_SETTINGS_MODULE=myproject.settings python yuvro_scoring_rules/main_test.py
+1. Add the project root to `sys.path`.
+2. Configure `DJANGO_SETTINGS_MODULE` (tries `settings`, `todo_project.settings`, `project.settings`, `config.settings`).
+3. Call `django.setup()`.
+4. Execute each task test in isolation, catching all exceptions.
+5. Print the combined JSON result to stdout.
+
+## Output Contract
+
+```json
+{
+  "tasks": {
+    "task1": { "result": "passed", "score": 10, "message": "..." },
+    "task2": { "result": "failed", "score": 0, "message": "..." },
+    "task3": { "result": "passed", "score": 10, "message": "..." }
+  },
+  "total_score": 20,
+  "max_possible_score": 30
+}
 ```
 
-The runner will also try common settings module names (`todo.settings`, `config.settings`, `myproject.settings`, `app.settings`) as a fallback.
+## What Each Test Checks
 
-## Robustness
+### Task 1 — Signup
+- Valid signup returns 200/201 and creates the user.
+- Duplicate email (case-insensitive) returns 400.
+- Password shorter than 8 chars returns 400 and does not create a user.
+- Password without a digit returns 400 and does not create a user.
+- Missing fields return 400.
 
-- Every evaluator wraps its logic in `try/except` and returns a structured failure result instead of raising.
-- The runner itself has a top-level `try/except` that emits a valid JSON fallback if anything unexpected happens, so stdout is always parseable.
-- Test data is cleaned up in `finally` blocks to avoid polluting the database between runs.
+### Task 2 — Todo creation
+- Unauthenticated POST returns 401/403.
+- Authenticated POST with valid title returns 200/201 and assigns `user` to the authenticated user.
+- Empty/whitespace title returns 400.
+- Title longer than 200 chars returns 400.
+
+### Task 3 — Todo listing
+- Unauthenticated GET returns 401/403.
+- Authenticated GET returns paginated response with `count`, `next`, `previous`, `results`.
+- Page size is 10; `count` reflects only the authenticated user's todos.
+- Page 2 returns the remaining items.
+- No cross-user data leakage.
+
+## Notes
+
+- Tests use `django.test.Client` and DRF `Token` authentication.
+- All created test data is cleaned up in `finally` blocks.
+- Any exception inside a test is caught and reported as `failed` with score 0 — the runner never crashes stdout JSON parsing.
